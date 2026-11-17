@@ -1,0 +1,7 @@
+O arquivo meteorologia_sintetica.npz e gerado automaticamente na primeira execucao.
+
+Cada arquivo NPZ deve conter duas matrizes float32 quadradas, com o mesmo tamanho:
+- elevation: alturas normalizadas no intervalo 0 a 1;
+- temperature: temperaturas em graus Celsius.
+
+Para converter uma imagem de heightmap, consulte tools/import_dataset.py.

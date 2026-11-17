@@ -1,0 +1,37 @@
+{
+  "window": {
+    "title": "Visualizacao Meteorologica Multirresolucao",
+    "width": 1280,
+    "height": 720,
+    "msaa_samples": 4,
+    "vsync": true
+  },
+  "terrain": {
+    "dataset": "data/meteorologia_sintetica.npz",
+    "grid_size": 257,
+    "seed": 113142,
+    "world_size": 512.0,
+    "vertical_scale": 58.0,
+    "patch_size": 32,
+    "lod_strides": [1, 2, 4, 8],
+    "lod_distances": [150.0, 280.0, 430.0],
+    "skirt_depth": 8.0
+  },
+  "camera": {
+    "position": [256.0, 185.0, 545.0],
+    "target": [256.0, 20.0, 256.0],
+    "move_speed": 125.0,
+    "mouse_sensitivity": 0.12,
+    "field_of_view": 60.0,
+    "near_plane": 0.1,
+    "far_plane": 1800.0
+  },
+  "rendering": {
+    "temperature_min": 8.0,
+    "temperature_max": 36.0,
+    "fog_start": 430.0,
+    "fog_end": 900.0,
+    "background_color": [0.70, 0.82, 0.92]
+  }
+}
+

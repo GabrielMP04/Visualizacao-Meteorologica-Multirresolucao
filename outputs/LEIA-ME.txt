@@ -1,0 +1,1 @@
+As capturas de tela, tabelas CSV e graficos PNG dos experimentos serao salvos aqui.

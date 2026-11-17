@@ -1,0 +1,18 @@
+PROJETO METEOROLOGIA OPENGL
+===========================
+
+WINDOWS
+1. Execute instalar_windows.bat uma vez.
+2. Execute executar_windows.bat para abrir o projeto.
+3. Execute benchmark_windows.bat para comparar SEM LOD e COM LOD.
+
+LINUX
+1. No terminal, execute: chmod +x *.sh
+2. Execute: ./instalar_linux.sh
+3. Execute: ./executar_linux.sh
+
+CONTROLES PRINCIPAIS
+WASD = mover | Q/E = descer/subir | botao direito = olhar
+L = alternar LOD | F = wireframe | B = gravar CSV | F12 = captura
+
+Consulte README.md para documentacao completa, dados proprios e testes.
