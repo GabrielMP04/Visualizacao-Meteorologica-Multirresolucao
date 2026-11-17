@@ -1,5 +1,8 @@
 # Visualizacao Meteorologica Multirresolucao
 
+Gabriel Marques Paulon RA: 113142 
+Gustavo Tesche RA: 113265
+
 Aplicacao desktop em **Python + OpenGL 3.3** para visualizar um campo de
 temperatura sobre um terreno construído a partir de heightmap. O mesmo cenario
 pode ser renderizado com uma malha uniforme ou com selecao automatica de niveis
