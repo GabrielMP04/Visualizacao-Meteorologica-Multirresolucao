@@ -4,9 +4,34 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import ctypes
+from pathlib import Path
+
+from PIL import Image
 
 from OpenGL.GL import (
     GL_ARRAY_BUFFER,
+    GL_CLAMP_TO_EDGE,
+    GL_LINEAR,
+    GL_LINEAR_MIPMAP_LINEAR,
+    GL_RGB,
+    GL_RGB8,
+    GL_TEXTURE0,
+    GL_TEXTURE_2D,
+    GL_TEXTURE_MAG_FILTER,
+    GL_TEXTURE_MIN_FILTER,
+    GL_TEXTURE_WRAP_S,
+    GL_TEXTURE_WRAP_T,
+    GL_UNPACK_ALIGNMENT,
+    GL_UNSIGNED_BYTE,
+    glActiveTexture,
+    glBindTexture,
+    glDeleteTextures,
+    glGenerateMipmap,
+    glGenTextures,
+    glGetIntegerv,
+    glPixelStorei,
+    glTexImage2D,
+    glTexParameteri,
     GL_ELEMENT_ARRAY_BUFFER,
     GL_FLOAT,
     GL_STATIC_DRAW,
@@ -24,32 +49,49 @@ from OpenGL.GL import (
     glVertexAttribPointer,
 )
 
-from .terrain_cpu import TerrainCPU
+from .terrain_cpu import PatchCPU, TerrainCPU
 
 
-def _as_id(value: int | list[int]) -> int:
-    if isinstance(value, (list, tuple)):
-        return int(value[0])
-    return int(value)
+class TerrainTexture:
+    def __init__(self, path: Path) -> None:
+        with Image.open(path) as source:
+            image = source.convert("RGB")
+        self.texture = int(glGenTextures(1))
+        self.bind()
+        alignment = glGetIntegerv(GL_UNPACK_ALIGNMENT)
+        try:
+            glPixelStorei(GL_UNPACK_ALIGNMENT, 1)
+            # A primeira linha do JPG e o norte, amostrado em v=0 no shader.
+            glTexImage2D(
+                GL_TEXTURE_2D, 0, GL_RGB8, image.width, image.height,
+                0, GL_RGB, GL_UNSIGNED_BYTE, image.tobytes(),
+            )
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE)
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE)
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR)
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR)
+            glGenerateMipmap(GL_TEXTURE_2D)
+        except Exception:
+            self.delete()
+            raise
+        finally:
+            glPixelStorei(GL_UNPACK_ALIGNMENT, alignment)
+
+    def bind(self) -> None:
+        glActiveTexture(GL_TEXTURE0)
+        glBindTexture(GL_TEXTURE_2D, self.texture)
+
+    def delete(self) -> None:
+        glDeleteTextures([self.texture])
 
 
 @dataclass
 class PatchGL:
     vao: int
     vbo: int
-    ebos: tuple[int, ...]
-    index_counts: tuple[int, ...]
-
-    def draw(self, level: int) -> int:
-        glBindVertexArray(self.vao)
-        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, self.ebos[level])
-        count = self.index_counts[level]
-        glDrawElements(GL_TRIANGLES, count, GL_UNSIGNED_INT, None)
-        return count // 3
 
     def delete(self) -> None:
         glDeleteBuffers(1, [self.vbo])
-        glDeleteBuffers(len(self.ebos), list(self.ebos))
         glDeleteVertexArrays(1, [self.vao])
 
 
@@ -57,11 +99,20 @@ class TerrainGL:
     def __init__(self, terrain: TerrainCPU) -> None:
         self.terrain = terrain
         self.patches = tuple(self._upload_patch(patch) for patch in terrain.patches)
+        index_buffers = []
+        for indices in terrain.indices_by_lod:
+            buffer = int(glGenBuffers(1))
+            # O destino no upload nao fixa o uso futuro do buffer.
+            glBindBuffer(GL_ARRAY_BUFFER, buffer)
+            glBufferData(GL_ARRAY_BUFFER, indices.nbytes, indices, GL_STATIC_DRAW)
+            index_buffers.append((buffer, int(indices.size)))
+        glBindBuffer(GL_ARRAY_BUFFER, 0)
+        self.index_buffers = tuple(index_buffers)
 
     @staticmethod
-    def _upload_patch(patch) -> PatchGL:
-        vao = _as_id(glGenVertexArrays(1))
-        vbo = _as_id(glGenBuffers(1))
+    def _upload_patch(patch: PatchCPU) -> PatchGL:
+        vao = int(glGenVertexArrays(1))
+        vbo = int(glGenBuffers(1))
         glBindVertexArray(vao)
         glBindBuffer(GL_ARRAY_BUFFER, vbo)
         glBufferData(GL_ARRAY_BUFFER, patch.vertices.nbytes, patch.vertices, GL_STATIC_DRAW)
@@ -74,17 +125,8 @@ class TerrainGL:
         glEnableVertexAttribArray(2)
         glVertexAttribPointer(2, 1, GL_FLOAT, False, stride, ctypes.c_void_p(6 * 4))
 
-        ebos: list[int] = []
-        counts: list[int] = []
-        for indices in patch.indices_by_lod:
-            ebo = _as_id(glGenBuffers(1))
-            glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo)
-            glBufferData(GL_ELEMENT_ARRAY_BUFFER, indices.nbytes, indices, GL_STATIC_DRAW)
-            ebos.append(ebo)
-            counts.append(int(indices.size))
-
         glBindVertexArray(0)
-        return PatchGL(vao=vao, vbo=vbo, ebos=tuple(ebos), index_counts=tuple(counts))
+        return PatchGL(vao=vao, vbo=vbo)
 
     def draw(self, levels: tuple[int, ...]) -> tuple[int, tuple[int, ...]]:
         if len(levels) != len(self.patches):
@@ -93,11 +135,16 @@ class TerrainGL:
         triangles = 0
         for patch, level in zip(self.patches, levels, strict=True):
             histogram[level] += 1
-            triangles += patch.draw(level)
+            buffer, count = self.index_buffers[level]
+            glBindVertexArray(patch.vao)
+            glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, buffer)
+            glDrawElements(GL_TRIANGLES, count, GL_UNSIGNED_INT, None)
+            triangles += count // 3
         glBindVertexArray(0)
         return triangles, tuple(histogram)
 
     def delete(self) -> None:
         for patch in self.patches:
             patch.delete()
+        glDeleteBuffers(len(self.index_buffers), [buffer for buffer, _ in self.index_buffers])
 

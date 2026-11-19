@@ -10,7 +10,7 @@ import numpy as np
 
 from src.dataset import generate_fields, load_dataset, save_dataset
 from src.math3d import look_at, perspective
-from src.terrain_cpu import TerrainCPU, choose_lod, compute_normals
+from src.terrain_cpu import TerrainCPU, compute_normals
 
 
 class DatasetTests(unittest.TestCase):
@@ -50,6 +50,7 @@ class TerrainTests(unittest.TestCase):
         patch = self.terrain.patches[0]
         self.assertEqual(patch.vertices.shape, (357, 7))
         self.assertEqual(patch.triangle_counts, (640, 192, 64, 24))
+        self.assertTrue(all(p.indices_by_lod is patch.indices_by_lod for p in self.terrain.patches))
 
     def test_lod_reduces_geometry(self) -> None:
         detailed = tuple(0 for _ in self.terrain.patches)
@@ -60,11 +61,12 @@ class TerrainTests(unittest.TestCase):
         self.assertLess(coarse_triangles, detailed_triangles)
 
     def test_lod_thresholds(self) -> None:
-        thresholds = (20.0, 40.0, 60.0)
-        self.assertEqual(choose_lod(0.0, thresholds, 4), 0)
-        self.assertEqual(choose_lod(20.0, thresholds, 4), 1)
-        self.assertEqual(choose_lod(45.0, thresholds, 4), 2)
-        self.assertEqual(choose_lod(999.0, thresholds, 4), 3)
+        # O centro horizontal do primeiro patch e (8, 8).
+        for distance, expected in [(0, 0), (20, 1), (45, 2), (60, 3)]:
+            with self.subTest(distance=distance):
+                camera = np.array([8 + distance, 1000, 8])
+                self.assertEqual(self.terrain.select_levels(camera, True)[0], expected)
+                self.assertTrue(all(level == 0 for level in self.terrain.select_levels(camera, False)))
 
     def test_flat_normals_point_up(self) -> None:
         normals = compute_normals(np.zeros((9, 9), dtype=np.float32), 1.0)

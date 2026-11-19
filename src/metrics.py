@@ -164,10 +164,6 @@ class AutomaticBenchmark:
         self.done = False
 
     @property
-    def mode_name(self) -> str:
-        return "sem_lod" if self.phase_index == 0 else "com_lod"
-
-    @property
     def lod_enabled(self) -> bool:
         return self.phase_index == 1
 

@@ -7,10 +7,12 @@ layout (location = 2) in float a_temperature;
 uniform mat4 u_model;
 uniform mat4 u_view;
 uniform mat4 u_projection;
+uniform vec4 u_texture_mapping;
 
 out vec3 v_world_position;
 out vec3 v_normal;
 out float v_temperature;
+out vec2 v_texture_uv;
 
 void main()
 {
@@ -18,6 +20,8 @@ void main()
     v_world_position = world_position.xyz;
     v_normal = normalize(mat3(transpose(inverse(u_model))) * a_normal);
     v_temperature = a_temperature;
+    // A mesma posicao horizontal sempre produz o mesmo UV, em qualquer LOD.
+    v_texture_uv = a_position.xz * u_texture_mapping.xy + u_texture_mapping.zw;
     gl_Position = u_projection * u_view * world_position;
 }
 

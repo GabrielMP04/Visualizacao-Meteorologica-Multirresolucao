@@ -3,6 +3,11 @@
 in vec3 v_world_position;
 in vec3 v_normal;
 in float v_temperature;
+in vec2 v_texture_uv;
+
+uniform sampler2D u_terrain_texture;
+uniform bool u_has_texture;
+uniform float u_temperature_opacity;
 
 uniform vec3 u_camera_position;
 uniform vec3 u_light_direction;
@@ -41,7 +46,14 @@ void main()
     float hemisphere = 0.5 + 0.5 * normal.y;
     float lighting = 0.30 + 0.55 * diffuse + 0.15 * hemisphere;
 
-    vec3 base_color = temperature_color(v_temperature);
+    vec3 base_color;
+    if (u_has_texture) {
+        base_color = texture(u_terrain_texture, v_texture_uv).rgb;
+        if (u_temperature_opacity > 0.0)
+            base_color = mix(base_color, temperature_color(v_temperature), u_temperature_opacity);
+    } else {
+        base_color = temperature_color(v_temperature);
+    }
     vec3 surface_color = base_color * lighting;
 
     float distance_to_camera = length(u_camera_position - v_world_position);

@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+import json
 from pathlib import Path
 import numpy as np
 
@@ -11,6 +12,7 @@ import numpy as np
 class MeteorologicalDataset:
     elevation: np.ndarray
     temperature: np.ndarray
+    metadata: dict = field(default_factory=dict)
 
     def validate(self) -> None:
         if self.elevation.ndim != 2 or self.temperature.ndim != 2:
@@ -81,18 +83,20 @@ def save_dataset(dataset: MeteorologicalDataset, path: str | Path) -> Path:
         destination,
         elevation=dataset.elevation.astype(np.float32),
         temperature=dataset.temperature.astype(np.float32),
+        metadata=np.array(json.dumps(dataset.metadata, ensure_ascii=True)),
     )
     return destination
 
 
 def load_dataset(path: str | Path) -> MeteorologicalDataset:
     source = Path(path)
-    with np.load(source, allow_pickle=False) as data:
+    with source.open("rb") as handle, np.load(handle, allow_pickle=False) as data:
         if "elevation" not in data or "temperature" not in data:
             raise ValueError("o arquivo NPZ precisa conter elevation e temperature")
         dataset = MeteorologicalDataset(
             elevation=np.asarray(data["elevation"], dtype=np.float32),
             temperature=np.asarray(data["temperature"], dtype=np.float32),
+            metadata=json.loads(str(data["metadata"].item())) if "metadata" in data else {},
         )
     dataset.validate()
     return dataset

@@ -4,12 +4,9 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
-import sys
 
 
 PROJECT_DIR = Path(__file__).resolve().parent
-if str(PROJECT_DIR) not in sys.path:
-    sys.path.insert(0, str(PROJECT_DIR))
 
 
 def parse_args() -> argparse.Namespace:
@@ -38,12 +35,27 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="desativa sincronizacao vertical",
     )
+    parser.add_argument("--prepare-data", action="store_true", help="importa e valida os dados sem abrir a janela")
     return parser.parse_args()
 
 
 def main() -> int:
     args = parse_args()
     try:
+        if args.prepare_data:
+            import json
+            from src.geodata import load_configured_dataset
+
+            config_path = PROJECT_DIR / args.config
+            terrain = json.loads(config_path.read_text(encoding="utf-8"))["terrain"]
+            dataset = load_configured_dataset(PROJECT_DIR, terrain)
+            print(f"Dados prontos: {terrain['dataset']} | grade {dataset.elevation.shape}")
+            print(f"Temperatura no mapa: {dataset.temperature.min():.2f} a {dataset.temperature.max():.2f} C")
+            if count := dataset.metadata.get("temperature_sample_count"):
+                period = " a ".join(dataset.metadata.get("temperature_period_utc", []))
+                print(f"Media por localizacao de {count} amostras | {period}")
+            return 0
+
         from src.application import MeteorologicalApp
 
         app = MeteorologicalApp(
@@ -60,7 +72,7 @@ def main() -> int:
         print(f"\nBiblioteca ausente: {missing}")
         print("Execute instalar_windows.bat antes de iniciar o projeto.\n")
         return 1
-    except RuntimeError as exc:
+    except (RuntimeError, OSError, ValueError) as exc:
         print(f"\nFalha ao iniciar: {exc}\n")
         return 2
 

@@ -7,15 +7,19 @@
     "vsync": true
   },
   "terrain": {
-    "dataset": "data/meteorologia_sintetica.npz",
-    "grid_size": 257,
-    "seed": 113142,
+    "dataset": "data/meteorologia_real.npz",
+    "grid_size": 513,
     "world_size": 512.0,
     "vertical_scale": 58.0,
     "patch_size": 32,
     "lod_strides": [1, 2, 4, 8],
     "lod_distances": [150.0, 280.0, 430.0],
-    "skirt_depth": 8.0
+    "skirt_depth": 8.0,
+    "source": "georeferenced",
+    "heightmap": "data/S23W048.tif",
+    "texture": "data/2026-10-27-00_00_2026-10-27-23_59_Sentinel-2_L2A_True_color.jpg",
+    "texture_bounds_wgs84": [-48.0, -23.0, -47.0, -22.0],
+    "temperature_file": "data/fd66efe1267676ede44532d9b6397cc3.grib"
   },
   "camera": {
     "position": [256.0, 185.0, 545.0],
@@ -31,7 +35,9 @@
     "temperature_max": 36.0,
     "fog_start": 430.0,
     "fog_end": 900.0,
-    "background_color": [0.70, 0.82, 0.92]
+    "background_color": [0.7, 0.82, 0.92],
+    "temperature_auto_range": true,
+    "temperature_overlay": false,
+    "temperature_opacity_percent": 50
   }
 }
-

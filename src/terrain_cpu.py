@@ -12,26 +12,18 @@ from .dataset import MeteorologicalDataset
 class PatchCPU:
     vertices: np.ndarray
     indices_by_lod: tuple[np.ndarray, ...]
-    center: np.ndarray
-    row: int
-    column: int
 
     @property
     def triangle_counts(self) -> tuple[int, ...]:
         return tuple(int(indices.size // 3) for indices in self.indices_by_lod)
 
 
-def compute_normals(height_world: np.ndarray, cell_size: float) -> np.ndarray:
-    dz, dx = np.gradient(height_world, cell_size, cell_size)
+def compute_normals(height_world: np.ndarray, cell_size: float, cell_depth: float | None = None) -> np.ndarray:
+    dz, dx = np.gradient(height_world, cell_depth or cell_size, cell_size)
     normals = np.stack((-dx, np.ones_like(height_world), -dz), axis=-1)
     lengths = np.linalg.norm(normals, axis=-1, keepdims=True)
     normals /= np.maximum(lengths, 1e-8)
     return normals.astype(np.float32)
-
-
-def choose_lod(distance: float, thresholds: tuple[float, ...], levels: int) -> int:
-    level = int(np.searchsorted(np.asarray(thresholds), float(distance), side="right"))
-    return int(np.clip(level, 0, levels - 1))
 
 
 class TerrainCPU:
@@ -46,17 +38,20 @@ class TerrainCPU:
         lod_strides: list[int] | tuple[int, ...],
         lod_distances: list[float] | tuple[float, ...],
         skirt_depth: float,
+        world_depth: float | None = None,
     ) -> None:
         dataset.validate()
         self.dataset = dataset
         self.grid_size = int(dataset.elevation.shape[0])
         self.world_size = float(world_size)
+        self.world_depth = float(world_depth if world_depth is not None else world_size)
         self.vertical_scale = float(vertical_scale)
         self.patch_size = int(patch_size)
         self.lod_strides = tuple(int(value) for value in lod_strides)
         self.lod_distances = tuple(float(value) for value in lod_distances)
         self.skirt_depth = float(skirt_depth)
         self.cell_size = self.world_size / float(self.grid_size - 1)
+        self.cell_depth = self.world_depth / float(self.grid_size - 1)
 
         if self.patch_size <= 0:
             raise ValueError("patch_size deve ser positivo")
@@ -74,10 +69,23 @@ class TerrainCPU:
             raise ValueError("lod_distances deve estar em ordem crescente")
 
         self.height_world = dataset.elevation.astype(np.float32) * self.vertical_scale
-        self.normals = compute_normals(self.height_world, self.cell_size)
+        self.normals = compute_normals(self.height_world, self.cell_size, self.cell_depth)
+        # A topologia local e identica em todos os patches.
+        size = self.patch_size
+        self._border_indices = [
+            [self._base_vertex_index(0, c) for c in range(size + 1)],
+            [self._base_vertex_index(r, size) for r in range(size + 1)],
+            [self._base_vertex_index(size, c) for c in range(size, -1, -1)],
+            [self._base_vertex_index(r, 0) for r in range(size, -1, -1)],
+        ]
+        self.indices_by_lod = self._build_indices()
         self.patches = self._build_patches()
+        centers = np.arange(0, self.grid_size - 1, size) + size / 2
+        z, x = np.meshgrid(centers * self.cell_depth, centers * self.cell_size, indexing="ij")
+        self._patch_centers_xz = np.column_stack((x.ravel(), z.ravel())).astype(np.float32)
+        self._lod_thresholds = np.asarray(self.lod_distances)
         self.center = np.array(
-            [self.world_size / 2.0, float(self.height_world.mean()), self.world_size / 2.0],
+            [self.world_size / 2.0, float(self.height_world.mean()), self.world_depth / 2.0],
             dtype=np.float32,
         )
 
@@ -90,7 +98,7 @@ class TerrainCPU:
         vertices: list[list[float]] = []
         for local_row in range(size + 1):
             global_row = row + local_row
-            z = global_row * self.cell_size
+            z = global_row * self.cell_depth
             for local_column in range(size + 1):
                 global_column = column + local_column
                 x = global_column * self.cell_size
@@ -99,23 +107,25 @@ class TerrainCPU:
                 temperature = float(self.dataset.temperature[global_row, global_column])
                 vertices.append([x, y, z, float(nx), float(ny), float(nz), temperature])
 
-        # Cada lado possui vertices duplicados e rebaixados, formando uma saia.
-        side_base_indices: list[list[int]] = [
-            [self._base_vertex_index(0, c) for c in range(size + 1)],
-            [self._base_vertex_index(r, size) for r in range(size + 1)],
-            [self._base_vertex_index(size, c) for c in range(size, -1, -1)],
-            [self._base_vertex_index(r, 0) for r in range(size, -1, -1)],
-        ]
-        side_skirt_indices: list[list[int]] = []
-        for base_side in side_base_indices:
-            skirt_side: list[int] = []
-            for base_index in base_side:
+        for side in self._border_indices:
+            for base_index in side:
                 skirt_vertex = list(vertices[base_index])
                 skirt_vertex[1] -= self.skirt_depth
-                skirt_side.append(len(vertices))
                 vertices.append(skirt_vertex)
-            side_skirt_indices.append(skirt_side)
 
+        return PatchCPU(
+            vertices=np.asarray(vertices, dtype=np.float32),
+            indices_by_lod=self.indices_by_lod,
+        )
+
+    def _build_indices(self) -> tuple[np.ndarray, ...]:
+        size = self.patch_size
+        side_base_indices = self._border_indices
+        first_skirt = (size + 1) ** 2
+        side_skirt_indices = [
+            range(first_skirt + side * (size + 1), first_skirt + (side + 1) * (size + 1))
+            for side in range(4)
+        ]
         levels: list[np.ndarray] = []
         for stride in self.lod_strides:
             indices: list[int] = []
@@ -136,25 +146,7 @@ class TerrainCPU:
                     indices.extend((base_a, skirt_a, base_b, base_b, skirt_a, skirt_b))
             levels.append(np.asarray(indices, dtype=np.uint32))
 
-        center_row = row + size / 2.0
-        center_column = column + size / 2.0
-        center_y = float(
-            self.height_world[
-                min(int(round(center_row)), self.grid_size - 1),
-                min(int(round(center_column)), self.grid_size - 1),
-            ]
-        )
-        center = np.array(
-            [center_column * self.cell_size, center_y, center_row * self.cell_size],
-            dtype=np.float32,
-        )
-        return PatchCPU(
-            vertices=np.asarray(vertices, dtype=np.float32),
-            indices_by_lod=tuple(levels),
-            center=center,
-            row=row,
-            column=column,
-        )
+        return tuple(levels)
 
     def _build_patches(self) -> tuple[PatchCPU, ...]:
         patches: list[PatchCPU] = []
@@ -165,13 +157,10 @@ class TerrainCPU:
 
     def select_levels(self, camera_position: np.ndarray, lod_enabled: bool) -> tuple[int, ...]:
         if not lod_enabled:
-            return tuple(0 for _ in self.patches)
-        camera = np.asarray(camera_position, dtype=np.float32)
-        levels: list[int] = []
-        for patch in self.patches:
-            horizontal_distance = float(np.linalg.norm((patch.center - camera)[[0, 2]]))
-            levels.append(choose_lod(horizontal_distance, self.lod_distances, len(self.lod_strides)))
-        return tuple(levels)
+            return (0,) * len(self.patches)
+        camera_xz = np.asarray(camera_position, dtype=np.float32)[[0, 2]]
+        distances = np.linalg.norm(self._patch_centers_xz - camera_xz, axis=1)
+        return tuple(np.searchsorted(self._lod_thresholds, distances, side="right").tolist())
 
     def triangle_summary(self, levels: tuple[int, ...]) -> tuple[int, tuple[int, ...]]:
         if len(levels) != len(self.patches):

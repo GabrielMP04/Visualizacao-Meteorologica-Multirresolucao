@@ -12,6 +12,8 @@ from OpenGL.GL import (
     glDeleteProgram,
     glGetUniformLocation,
     glUniform1f,
+    glUniform1i,
+    glUniform4f,
     glUniform3f,
     glUniformMatrix4fv,
     glUseProgram,
@@ -39,6 +41,12 @@ class ShaderProgram:
         if name not in self._uniforms:
             self._uniforms[name] = int(glGetUniformLocation(self.program, name))
         return self._uniforms[name]
+
+    def set_int(self, name: str, value: int) -> None:
+        glUniform1i(self._location(name), value)
+
+    def set_vec4(self, name: str, value: tuple[float, float, float, float]) -> None:
+        glUniform4f(self._location(name), *value)
 
     def set_float(self, name: str, value: float) -> None:
         glUniform1f(self._location(name), float(value))

@@ -32,12 +32,12 @@ from PIL import Image
 
 from .camera import FlyCamera
 from .charts import create_comparison_chart
-from .dataset import load_or_create
+from .geodata import load_configured_dataset
 from .math3d import perspective
 from .metrics import AutomaticBenchmark, MetricsRecorder, PerformanceMonitor
 from .shader import ShaderProgram
 from .terrain_cpu import TerrainCPU
-from .terrain_gl import TerrainGL
+from .terrain_gl import TerrainGL, TerrainTexture
 
 
 class MeteorologicalApp:
@@ -78,8 +78,21 @@ class MeteorologicalApp:
         self.triangles = 0
         self.lod_histogram: tuple[int, ...] = ()
 
+        # Validar/importar antes de abrir a janela, sem tela vazia durante a conversao.
+        self.dataset = load_configured_dataset(self.project_dir, self.terrain_config)
+        self._configure_temperature_scale()
+        self.terrain_texture: TerrainTexture | None = None
+        self.temperature_overlay = bool(self.render_config.get("temperature_overlay", False))
+        self.temperature_opacity = int(self.render_config.get("temperature_opacity_percent", 50))
+        if not 0 <= self.temperature_opacity <= 100:
+            raise ValueError("temperature_opacity_percent deve estar entre 0 e 100.")
         self._create_window()
-        self._create_scene()
+        try:
+            self._create_scene()
+        except Exception:
+            glfw.destroy_window(self.window)
+            glfw.terminate()
+            raise
 
     def _create_window(self) -> None:
         if not glfw.init():
@@ -117,15 +130,17 @@ class MeteorologicalApp:
         glViewport(0, 0, self.width, self.height)
 
     def _create_scene(self) -> None:
-        dataset_path = self.project_dir / str(self.terrain_config["dataset"])
-        dataset = load_or_create(
-            dataset_path,
-            size=int(self.terrain_config["grid_size"]),
-            seed=int(self.terrain_config["seed"]),
-        )
+        dataset = self.dataset
+        metadata = dataset.metadata
+        world_size = float(self.terrain_config["world_size"])
+        world_depth = world_size
+        if metadata.get("width_m", 0) > 0:
+            world_depth *= metadata["depth_m"] / metadata["width_m"]
+        self._print_dataset()
         self.terrain_cpu = TerrainCPU(
             dataset=dataset,
-            world_size=float(self.terrain_config["world_size"]),
+            world_size=world_size,
+            world_depth=world_depth,
             vertical_scale=float(self.terrain_config["vertical_scale"]),
             patch_size=int(self.terrain_config["patch_size"]),
             lod_strides=self.terrain_config["lod_strides"],
@@ -137,6 +152,23 @@ class MeteorologicalApp:
             self.project_dir / "shaders" / "terrain.vert",
             self.project_dir / "shaders" / "terrain.frag",
         )
+        self.texture_mapping = (1.0 / world_size, 1.0 / world_depth, 0.0, 0.0)
+        if texture_path := self.terrain_config.get("texture"):
+            if bounds := self.terrain_config.get("texture_bounds_wgs84"):
+                if metadata.get("crs") != "EPSG:4326":
+                    raise ValueError("texture_bounds_wgs84 requer um terreno em EPSG:4326.")
+                west, south, east, north = bounds
+                dem_west, dem_south, dem_east, dem_north = metadata["bounds_wgs84"]
+                if not (west <= dem_west < dem_east <= east and
+                        south <= dem_south < dem_north <= north):
+                    raise ValueError("Os limites da textura devem cobrir todo o terreno.")
+                self.texture_mapping = (
+                    (dem_east - dem_west) / (east - west) / world_size,
+                    (dem_north - dem_south) / (north - south) / world_depth,
+                    (dem_west - west) / (east - west),
+                    (north - dem_north) / (north - south),
+                )
+            self.terrain_texture = TerrainTexture(self.project_dir / texture_path)
         self.camera = FlyCamera(
             position=self.camera_config["position"],
             target=self.camera_config["target"],
@@ -152,6 +184,28 @@ class MeteorologicalApp:
             )
         self._print_help()
 
+    def _configure_temperature_scale(self) -> None:
+        if self.render_config.get("temperature_auto_range", False):
+            low = math.floor(float(self.dataset.temperature.min()))
+            high = math.ceil(float(self.dataset.temperature.max()))
+            self.render_config["temperature_min"] = low
+            self.render_config["temperature_max"] = max(high, low + 1)
+
+    def _print_dataset(self) -> None:
+        data = self.dataset
+        meta = data.metadata
+        if "height_source" in meta:
+            print(f"Relevo: {meta['height_source']} | grade {data.elevation.shape}")
+            print(f"Altitude reamostrada: {meta['elevation_min_m']:.1f} a {meta['elevation_max_m']:.1f} m")
+        count = meta.get("temperature_sample_count")
+        label = "Temperatura media" if count else "Temperatura"
+        if count:
+            period = " a ".join(meta.get("temperature_period_utc", []))
+            print(f"Media por localizacao de {count} amostras | {period}")
+        self.temperature_label = f"{label}: {data.temperature.min():.2f} a {data.temperature.max():.2f} C"
+        print(self.temperature_label)
+        print(f"Escala de cores (azul -> vermelho): {self.render_config['temperature_min']:.1f} a {self.render_config['temperature_max']:.1f} C")
+
     @staticmethod
     def _print_help() -> None:
         print(
@@ -164,6 +218,7 @@ class MeteorologicalApp:
  L        ligar/desligar LOD F        wireframe
  R        restaurar camera   B        gravar CSV
  F12      salvar imagem      ESC      sair
+ T        camada de temperatura    +/-    opacidade
 ==========================================================
 """
         )
@@ -174,19 +229,29 @@ class MeteorologicalApp:
         glViewport(0, 0, self.width, self.height)
 
     def _on_key(self, window, key: int, _scancode: int, action: int, _mods: int) -> None:
-        if action != glfw.PRESS:
+        opacity_keys = (glfw.KEY_EQUAL, glfw.KEY_KP_ADD, glfw.KEY_MINUS, glfw.KEY_KP_SUBTRACT)
+        if action == glfw.REPEAT and key not in opacity_keys:
             return
-        if key == glfw.KEY_ESCAPE:
+        if action not in (glfw.PRESS, glfw.REPEAT):
+            return
+        if self.automatic is not None and key != glfw.KEY_ESCAPE:
+            return
+        if self.terrain_texture is not None and key == glfw.KEY_T:
+            self.temperature_overlay = not self.temperature_overlay
+        elif self.terrain_texture is not None and key in opacity_keys:
+            step = 5 if key in opacity_keys[:2] else -5
+            self.temperature_opacity = max(0, min(100, self.temperature_opacity + step))
+        elif key == glfw.KEY_ESCAPE:
             glfw.set_window_should_close(window, True)
-        elif key == glfw.KEY_L and self.automatic is None:
+        elif key == glfw.KEY_L:
             self.lod_enabled = not self.lod_enabled
         elif key == glfw.KEY_F:
             self.wireframe = not self.wireframe
-        elif key == glfw.KEY_R and self.automatic is None:
+        elif key == glfw.KEY_R:
             self.camera.reset()
         elif key == glfw.KEY_F12:
             self.pending_screenshot = True
-        elif key == glfw.KEY_B and self.automatic is None:
+        elif key == glfw.KEY_B:
             self._toggle_manual_recording()
 
     def _on_mouse_button(self, window, button: int, action: int, _mods: int) -> None:
@@ -259,6 +324,15 @@ class MeteorologicalApp:
         )
         levels = self.terrain_cpu.select_levels(self.camera.position, self.lod_enabled)
         self.shader.use()
+        if self.terrain_texture is not None:
+            self.terrain_texture.bind()
+        self.shader.set_int("u_has_texture", int(self.terrain_texture is not None))
+        self.shader.set_int("u_terrain_texture", 0)
+        self.shader.set_vec4("u_texture_mapping", self.texture_mapping)
+        self.shader.set_float(
+            "u_temperature_opacity",
+            self.temperature_opacity / 100.0 if self.temperature_overlay else 0.0,
+        )
         self.shader.set_mat4("u_model", self.model_matrix)
         self.shader.set_mat4("u_view", self.camera.view_matrix())
         self.shader.set_mat4("u_projection", projection)
@@ -294,10 +368,14 @@ class MeteorologicalApp:
         if self.automatic is not None:
             recording = f" | BENCHMARK {self.automatic.phase_progress * 100:3.0f}%"
         histogram = "/".join(str(value) for value in self.lod_histogram)
+        overlay = ""
+        if self.terrain_texture is not None:
+            state = "ligada" if self.temperature_overlay else "desligada"
+            overlay = f"Temperatura {state} ({self.temperature_opacity}%) | "
         title = (
-            f"{self.window_config['title']} | {mode} | "
+            f"{self.window_config['title']} | {overlay}{mode} | "
             f"FPS {self.monitor.fps:6.1f} | {self.triangles:,} triangulos | "
-            f"patches [{histogram}] | velocidade {self.camera.move_speed:.0f}{recording}"
+            f"patches [{histogram}] | {self.temperature_label}{recording}"
         )
         glfw.set_window_title(self.window, title)
 
@@ -324,6 +402,8 @@ class MeteorologicalApp:
 
     def run(self) -> None:
         previous_time = time.perf_counter()
+        if self.automatic is not None:
+            self.automatic.phase_started = previous_time
         try:
             while not glfw.window_should_close(self.window):
                 frame_start = time.perf_counter()
@@ -367,6 +447,8 @@ class MeteorologicalApp:
         finally:
             if self.manual_recorder is not None and self.manual_recorder.frames:
                 self.manual_recorder.save()
+            if self.terrain_texture is not None:
+                self.terrain_texture.delete()
             self.terrain_gl.delete()
             self.shader.delete()
             glfw.destroy_window(self.window)

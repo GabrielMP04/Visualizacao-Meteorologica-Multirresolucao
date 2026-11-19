@@ -29,7 +29,6 @@ class FlyCamera:
         self.pitch = -20.0
         self.front = np.array([0.0, 0.0, -1.0], dtype=np.float32)
         self.right = np.array([1.0, 0.0, 0.0], dtype=np.float32)
-        self.up = self.world_up.copy()
         self.look_at(self.initial_target)
 
     def _update_vectors(self) -> None:
@@ -45,7 +44,6 @@ class FlyCamera:
         )
         self.front = normalize(front)
         self.right = normalize(np.cross(self.front, self.world_up))
-        self.up = normalize(np.cross(self.right, self.front))
 
     def look_at(self, target: np.ndarray | list[float]) -> None:
         direction = normalize(np.asarray(target, dtype=np.float32) - self.position)
