@@ -12,18 +12,43 @@
     "world_size": 512.0,
     "vertical_scale": 58.0,
     "patch_size": 32,
-    "lod_strides": [1, 2, 4, 8],
-    "lod_distances": [150.0, 280.0, 430.0],
+    "lod_strides": [
+      1,
+      2,
+      4,
+      8
+    ],
+    "lod_distances": [
+      150.0,
+      280.0,
+      430.0
+    ],
     "skirt_depth": 8.0,
-    "source": "georeferenced",
+    "source": "state",
     "heightmap": "data/S23W048.tif",
-    "texture": "data/2026-10-27-00_00_2026-10-27-23_59_Sentinel-2_L2A_True_color.jpg",
-    "texture_bounds_wgs84": [-48.0, -23.0, -47.0, -22.0],
-    "temperature_file": "data/fd66efe1267676ede44532d9b6397cc3.grib"
+    "texture": "data/sao-paulo/2026-07-30-00_00_2026-09-28-23_59_Sentinel-2_L2A_True_color.jpg",
+    "texture_bounds_wgs84": [
+      -53.1101115,
+      -25.3579998,
+      -44.1613652,
+      -19.7796557999999
+    ],
+    "temperature_file": "data/fd66efe1267676ede44532d9b6397cc3.grib",
+    "heightmap_directory": "data/sao-paulo/SRTMGL1_33tiles",
+    "boundary": "data/sao-paulo/SP_UF_2025.json",
+    "weather_file": "data/sao-paulo/b2ba068d34c2bc7f011b1367fb9d92a8.grib"
   },
   "camera": {
-    "position": [256.0, 185.0, 545.0],
-    "target": [256.0, 20.0, 256.0],
+    "position": [
+      256.0,
+      185.0,
+      545.0
+    ],
+    "target": [
+      256.0,
+      20.0,
+      256.0
+    ],
     "move_speed": 125.0,
     "mouse_sensitivity": 0.12,
     "field_of_view": 60.0,
@@ -35,7 +60,11 @@
     "temperature_max": 36.0,
     "fog_start": 430.0,
     "fog_end": 900.0,
-    "background_color": [0.7, 0.82, 0.92],
+    "background_color": [
+      0.7,
+      0.82,
+      0.92
+    ],
     "temperature_auto_range": true,
     "temperature_overlay": false,
     "temperature_opacity_percent": 50

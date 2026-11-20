@@ -1,34 +1,81 @@
 # Visualização Meteorológica Multirresolução
 
-Gabriel Marques Paulon · RA 113142
+Gabriel Marques Paulon · RA 113142 · Gustavo Tesche · RA 113265
 
-Gustavo Tesche · RA 113265
+Aplicação desktop desenvolvida em **Python e OpenGL 3.3** para visualização tridimensional do relevo do estado de São Paulo. O programa combina um modelo digital de elevação, uma imagem de satélite e dados meteorológicos horários de temperatura e precipitação.
 
-Aplicação desktop em **Python e OpenGL 3.3** que transforma um modelo digital de elevação em um terreno 3D, aplica uma imagem Sentinel-2 à superfície e permite sobrepor a temperatura média do ar. A mesma cena pode ser renderizada com uma malha uniforme ou com seleção automática de níveis de detalhe (LOD).
+## Objetivo
 
-## O que está implementado
+O projeto demonstra conceitos de Computação Gráfica aplicados a dados geográficos reais:
 
-- Câmera 3D livre com projeção em perspectiva.
-- Terreno real do SRTM GL1, reamostrado de 3.601 × 3.601 para 513 × 513 pontos.
-- Textura Sentinel-2 em cor natural aplicada à malha, com filtragem linear e mipmaps.
-- Temperatura média calculada por localização a partir de 288 horários do ERA5-Land. A camada pode ser ligada e ter sua opacidade ajustada.
-- Divisão do terreno em 16 × 16 patches, com passos de amostragem de 1, 2, 4 e 8 células. A distância horizontal até a câmera determina o nível.
-- Saias nas bordas dos patches para disfarçar frestas entre níveis e quatro buffers de índices compartilhados entre os patches.
-- Modos **SEM LOD** e **COM LOD**, visualização da malha em wireframe e shaders GLSL para textura, paleta térmica, iluminação e neblina.
-- Contador de FPS, triângulos e patches por nível, gravação de métricas, benchmark automático e captura de tela.
+- construção de terreno 3D a partir de heightmaps;
+- aplicação de textura Sentinel-2;
+- recorte do estado por uma máscara geográfica;
+- visualização temporal de temperatura e precipitação;
+- seleção de nível de detalhe conforme a distância da câmera;
+- iluminação, mapa de cores e neblina por shaders GLSL;
+- comparação de desempenho com e sem LOD.
 
-## Início rápido no Windows
+## Dados utilizados
 
-1. Instale o [Python 3.12](https://www.python.org/downloads/) e marque **Add Python to PATH**.
-2. Execute `instalar_windows.bat` na pasta do projeto. Se já havia uma instalação anterior, execute esse instalador para incluir o Rasterio.
-3. Execute `executar_windows.bat` para abrir a visualização.
-4. Execute `benchmark_windows.bat` para comparar os dois modos de renderização.
+| Dado | Origem | Função |
+| --- | --- | --- |
+| 33 arquivos GeoTIFF SRTM GL1 | [Global DEM Portal](https://globaldemportal.github.io/) | Fornecem as altitudes usadas na geometria do terreno. |
+| `SP_UF_2025.json` | [Malha territorial do IBGE](https://geoftp.ibge.gov.br/organizacao_do_territorio/malhas_territoriais/malhas_municipais/municipio_2025/UFs/SP/) | Define o contorno do estado de São Paulo. |
+| Arquivo GRIB | [ERA5-Land](https://doi.org/10.24381/cds.e2161bac) | Contém temperatura do ar a 2 m e precipitação total em 336 horários. |
+| Imagem Sentinel-2 L2A True Color | [Copernicus Browser](https://browser.dataspace.copernicus.eu/) | Fornece a textura em cores naturais aplicada ao terreno. |
 
-O instalador cria o ambiente virtual `.venv` e instala os pacotes de `requirements.txt`. A aplicação requer um driver que suporte OpenGL 3.3.
+O GRIB cobre o período de **1 a 14 de novembro de 2026**, em intervalos horários e com horários em UTC. A imagem Sentinel não possui georreferenciamento embutido; por isso, seu enquadramento é aproximado aos limites do estado.
 
-## Início rápido no Linux
+## Construção da malha de São Paulo
 
-No terminal, a partir da raiz do projeto:
+1. Os 33 GeoTIFFs são lidos e reamostrados para uma grade regular de **513 × 513 pontos**.
+2. As altitudes são normalizadas e convertidas em posições dos vértices.
+3. O GeoJSON é rasterizado em uma máscara com o contorno estadual.
+4. A malha é dividida em **256 patches**, organizados em 16 × 16 regiões de 32 × 32 células.
+5. São calculadas as normais dos vértices para a iluminação da superfície.
+6. A imagem Sentinel-2 é aplicada por coordenadas de textura.
+
+O recorte é feito durante a fragmentação. A grade regular continua sendo usada internamente, preservando a estrutura necessária para os níveis de detalhe.
+
+## Level of Detail
+
+Cada patch pode ser desenhado com quatro passos de amostragem:
+
+| Nível | Distância horizontal da câmera | Passo da malha |
+| --- | ---: | ---: |
+| 0 | menor que 150 | 1 célula |
+| 1 | de 150 a 280 | 2 células |
+| 2 | de 280 a 430 | 4 células |
+| 3 | a partir de 430 | 8 células |
+
+Patches próximos da câmera utilizam mais triângulos. Patches distantes utilizam uma representação simplificada. Saias verticais são adicionadas às bordas para reduzir a percepção de frestas entre níveis diferentes.
+
+## Textura e shaders
+
+O vertex shader transforma os vértices pelas matrizes de modelo, visão e projeção, envia as normais e calcula as coordenadas usadas para amostrar a textura.
+
+O fragment shader realiza o recorte pela máscara de São Paulo, lê a textura e o campo meteorológico, converte o valor em cor, mistura as camadas conforme a opacidade e calcula iluminação e neblina.
+
+A textura usa filtragem linear, mipmaps e limitação nas bordas para reduzir artefatos em diferentes distâncias.
+
+## Dados meteorológicos
+
+A temperatura é lida em kelvin e convertida para graus Celsius. A precipitação do ERA5-Land é armazenada em metros acumulados por ciclo de previsão. O programa calcula a precipitação de cada hora pela diferença entre acumulados consecutivos do mesmo ciclo e converte o resultado para milímetros.
+
+Os campos são interpolados para a grade do terreno. Valores ausentes permanecem transparentes, permitindo que a textura continue visível onde o GRIB não possui cobertura.
+
+Uma interface auxiliar permite selecionar temperatura ou precipitação, escolher dia e horário UTC, percorrer ou reproduzir a sequência temporal e controlar a visibilidade e a opacidade da camada.
+
+## Execução
+
+### Windows
+
+1. Instale o Python 3.12 ou superior.
+2. Execute `instalar_windows.bat`.
+3. Execute `executar_windows.bat`.
+
+### Linux
 
 ```bash
 chmod +x instalar_linux.sh executar_linux.sh benchmark_linux.sh
@@ -36,10 +83,16 @@ chmod +x instalar_linux.sh executar_linux.sh benchmark_linux.sh
 ./executar_linux.sh
 ```
 
-Em Debian/Ubuntu, caso o GLFW indique bibliotecas de sistema ausentes:
+Em distribuições Debian ou Ubuntu, a interface pode exigir:
 
 ```bash
-sudo apt install libgl1-mesa-dri libglfw3 libxrandr2 libxinerama1 libxcursor1 libxi6
+sudo apt install python3-tk libgl1-mesa-dri libglfw3
+```
+
+Para validar a leitura dos dados sem iniciar a visualização:
+
+```bash
+python main.py --prepare-data
 ```
 
 ## Controles
@@ -48,117 +101,59 @@ sudo apt install libgl1-mesa-dri libglfw3 libxrandr2 libxinerama1 libxcursor1 li
 | --- | --- |
 | `W`, `A`, `S`, `D` | Mover a câmera |
 | `Q` / `E` | Descer / subir |
-| Botão direito + mouse | Olhar ao redor |
+| Botão direito + mouse | Alterar a direção da câmera |
 | Roda do mouse | Ajustar a velocidade |
-| `L` | Alternar entre COM LOD e SEM LOD |
-| `F` | Alternar entre preenchimento e wireframe |
-| `T` | Ligar ou desligar a camada de temperatura média |
-| `+` / `-` | Ajustar a opacidade em 5 pontos percentuais, de 0% a 100%. No teclado principal, `=` também aumenta a opacidade |
+| `L` | Ativar ou desativar o LOD |
+| `F` | Alternar preenchimento e wireframe |
+| `T` | Ativar ou desativar a camada meteorológica |
+| `+` / `-` | Alterar a opacidade |
 | `R` | Restaurar a câmera |
-| `B` | Iniciar ou encerrar a gravação manual de métricas |
-| `F12` | Salvar captura PNG em `outputs` |
-| `Esc` | Sair |
+| `B` | Iniciar ou encerrar a gravação de métricas |
+| `F12` | Salvar uma captura em `outputs` |
+| `Esc` | Encerrar o programa |
 
-A textura aparece desde o início. A camada de temperatura começa desligada e usa 50% de opacidade quando ligada pela primeira vez. O título da janela mostra o modo LOD, os FPS, a quantidade de triângulos, a distribuição dos patches e o estado da camada térmica.
+## Benchmark
 
-## Experimento para o artigo
-
-Execute `benchmark_windows.bat` no Windows, `./benchmark_linux.sh` no Linux ou, com o ambiente virtual ativo:
+O benchmark percorre a mesma trajetória de câmera com o LOD desativado e ativado. São registrados FPS, tempo por quadro, número de triângulos e quantidade de patches em cada nível.
 
 ```bash
 python main.py --benchmark --seconds 12 --no-vsync
 ```
 
-Cada modo faz dois segundos de aquecimento e doze segundos de medição. A câmera segue a mesma trajetória em função do tempo, com VSync desativado. O número de quadros e seus instantes de amostragem podem diferir entre os modos. Os resultados ficam em `outputs`:
+Os arquivos CSV e o gráfico comparativo são salvos em `outputs`.
 
-- `benchmark_opengl_comparacao_frames.csv` — tempo por quadro, FPS, triângulos, posição da câmera e distribuição dos patches.
-- `benchmark_opengl_comparacao_resumo.csv` — médias por modo, desvio-padrão e percentil 95 do tempo por quadro, além das contagens de triângulos.
-- `benchmark_opengl_comparacao_grafico.png` — gráficos comparativos de FPS, tempo por quadro e triângulos.
+## Configuração principal
 
-Para repetir o experimento, mantenha a resolução e as configurações da cena, feche programas pesados e faça mais de uma rodada. Guarde os resultados de cada rodada, pois o benchmark reutiliza os nomes dos arquivos. Registre CPU, GPU, memória, sistema operacional, resolução e versão do Python. Use o tempo por quadro para avaliar se a redução de triângulos se traduziu em ganho de desempenho.
+O arquivo `config.json` contém os caminhos dos dados e os parâmetros da cena.
 
-## Dados usados no projeto
-
-| Arquivo em `data/` | Fonte e função |
+| Parâmetro | Valor atual |
 | --- | --- |
-| `S23W048.tif` | GeoTIFF de elevação **SRTM GL1**, obtido no [Global DEM Portal](https://globaldemportal.github.io/). A cópia local coincide pelo SHA-256 com o [bloco distribuído pelo OpenTopography](https://opentopography.s3.sdsc.edu/raster/SRTM_GL1/SRTM_GL1_srtm/S23W048.tif). Define as alturas da malha. |
-| `fd66efe1267676ede44532d9b6397cc3.grib` | Temperatura do ar a 2 m do [ERA5-Land](https://doi.org/10.24381/cds.e2161bac), versão preliminar ERA5-Land-T. Contém 288 campos horários, de 01/11/2026 às 00:00 a 12/11/2026 às 23:00 UTC. |
-| `2026-10-27-00_00_2026-10-27-23_59_Sentinel-2_L2A_True_color.jpg` | Imagem **Sentinel-2 L2A True Color**, exportada do [Copernicus Browser](https://browser.dataspace.copernicus.eu/) para 27/10/2026. Fornece a textura de fundo. |
-
-O recorte do DEM vai de 23° S a 22° S e de 48° O a 47° O. A aplicação converte as temperaturas de kelvin para Celsius, calcula a média dos 288 horários em cada ponto da grade de 11 × 11 e interpola o campo médio para o terreno. Com esses arquivos, as temperaturas médias exibidas vão de **21,43 a 23,22 °C**. A interpolação preenche a visualização entre pontos da grade original, cuja resolução meteorológica permanece de 0,1°.
-
-O JPG não inclui coordenadas. A configuração assume norte no topo e o mesmo recorte do DEM. A imagem de outubro fornece contexto visual para a temperatura média de novembro.
-
-Na primeira execução, o programa gera `data/meteorologia_real.npz` a partir do TIFF e do GRIB. Alterações nas fontes ou no tamanho da grade invalidam esse cache. O JPG é lido separadamente. Para preparar os dados sem abrir a janela:
-
-```bash
-python main.py --prepare-data
-```
-
-## Dados próprios
-
-Para trabalhar diretamente com outro par de dados georreferenciados, mantenha `terrain.source` como `georeferenced` e ajuste `terrain.heightmap` e `terrain.temperature_file`. Se usar uma nova textura, atualize o caminho e os limites. O importador espera um DEM orientado ao norte e um GRIB de temperatura do ar a 2 m com cobertura para o recorte.
-
-Também é possível gerar um NPZ separado. Com o ambiente virtual ativo:
-
-```bash
-python tools/import_dataset.py --height caminho/relevo.tif --temperature caminho/temperatura.grib --output data/meteorologia_importada.npz
-```
-
-O importador também aceita imagens reconhecidas pelo Pillow, `.npy`, `.csv` e `.txt`. Com alturas e temperaturas em matrizes sem georreferenciamento, as grades precisam representar o mesmo recorte e a mesma orientação. Por exemplo:
-
-```bash
-python tools/import_dataset.py --height caminho/relevo.png --temperature caminho/temperatura.csv --output data/meteorologia_importada.npz
-```
-
-Os formatos numéricos de temperatura são interpretados em Celsius. Para importar apenas a elevação, omita `--temperature`. Nesse caso, a ferramenta gera temperaturas demonstrativas a partir da altura. O tamanho padrão do importador é 513 × 513 e pode ser ajustado com `--size`.
-
-Para abrir o arquivo importado, use `terrain.source` igual a `npz` e aponte `terrain.dataset` para o NPZ. Se o NPZ não tiver georreferenciamento ou corresponder a outro recorte, retire a textura e os limites do recorte original ou configure uma imagem compatível. O NPZ contém duas matrizes quadradas `float32`, `elevation` normalizada de 0 a 1 e `temperature` em Celsius, além de `metadata` com os metadados disponíveis. Para uma cena de demonstração totalmente sintética, use `terrain.source` igual a `synthetic`, um caminho NPZ separado e retire a textura geográfica.
-
-## Configuração
-
-As principais opções estão em `config.json`.
-
-| Campo | Função | Padrão |
-| --- | --- | --- |
-| `terrain.source` | Entrada georreferenciada, NPZ ou geração sintética | `georeferenced` |
-| `terrain.dataset` | Caminho do cache ou do NPZ de entrada | `data/meteorologia_real.npz` |
-| `terrain.heightmap` / `terrain.temperature_file` | Arquivos de elevação e temperatura | GeoTIFF SRTM e GRIB ERA5-Land |
-| `terrain.texture` / `terrain.texture_bounds_wgs84` | Imagem e limites oeste, sul, leste e norte | Sentinel-2 e `[-48, -23, -47, -22]` |
-| `terrain.grid_size` | Amostras da malha por lado | 513 |
-| `terrain.world_size` | Largura em unidades da cena. A profundidade acompanha a proporção do recorte geográfico | 512 |
-| `terrain.vertical_scale` | Escala visual da elevação normalizada | 58 |
-| `terrain.patch_size` | Células por lado de cada patch | 32 |
-| `terrain.lod_strides` | Passos de amostragem dos níveis | `[1, 2, 4, 8]` |
-| `terrain.lod_distances` | Distâncias de troca de nível | `[150, 280, 430]` |
-| `terrain.skirt_depth` | Profundidade das saias nas bordas | 8 |
-| `rendering.temperature_auto_range` | Ajusta a paleta à faixa do campo importado | `true` |
-| `rendering.temperature_min` / `rendering.temperature_max` | Limites em °C quando a faixa automática está desligada | 8 / 36 |
-| `rendering.temperature_overlay` / `rendering.temperature_opacity_percent` | Visibilidade e opacidade iniciais da camada | `false` / 50 |
-
-Para a malha, `grid_size - 1` deve ser múltiplo de `patch_size` e cada passo de LOD deve dividir `patch_size`. A textura precisa cobrir o terreno. O mapeamento pelos limites WGS84 pressupõe uma grade de latitude e longitude sem rotação.
+| Fonte | `state` |
+| Grade | 513 × 513 pontos |
+| Tamanho dos patches | 32 × 32 células |
+| Passos de LOD | 1, 2, 4 e 8 |
+| Distâncias de LOD | 150, 280 e 430 |
+| Escala vertical | 58 |
+| Opacidade inicial | 50% |
 
 ## Estrutura do projeto
 
 ```text
 .
-├── main.py                  # Inicialização e argumentos de linha de comando
-├── config.json              # Parâmetros da cena e do experimento
-├── requirements.txt         # Dependências Python
-├── shaders/                 # Vertex shader e fragment shader em GLSL
+├── main.py                  # Ponto de entrada
+├── config.json              # Configuração da cena
+├── shaders/                 # Vertex shader e fragment shader
 ├── src/
-│   ├── application.py       # Janela, eventos e loop de renderização
-│   ├── camera.py            # Câmera 3D livre
-│   ├── math3d.py            # Matrizes de visão e projeção
-│   ├── dataset.py           # Formato NPZ e dados de demonstração
-│   ├── geodata.py           # Importação georreferenciada e média térmica
-│   ├── terrain_cpu.py       # Malha, normais, saias e seleção de LOD
-│   ├── terrain_gl.py        # Buffers, textura e desenho OpenGL
-│   ├── shader.py            # Compilação e parâmetros dos shaders
-│   ├── metrics.py           # Medição e exportação em CSV
-│   └── charts.py            # Gráficos do experimento
-├── tools/                   # Geração, importação e gráficos
-├── tests/                   # Testes independentes da GPU
-├── data/                    # Arquivos de entrada e cache
-└── outputs/                 # CSV, gráficos e capturas
+│   ├── application.py       # Janela e loop de renderização
+│   ├── state_data.py        # Mosaico, recorte e leitura do GRIB
+│   ├── state_controls.py    # Interface de seleção meteorológica
+│   ├── terrain_cpu.py       # Geração da malha e seleção de LOD
+│   ├── terrain_gl.py        # Buffers e desenho em OpenGL
+│   ├── camera.py            # Câmera 3D
+│   ├── shader.py            # Compilação dos shaders
+│   └── metrics.py           # Coleta das métricas
+├── data/sao-paulo/          # Dados geográficos e meteorológicos
+├── tests/                   # Testes automatizados
+└── outputs/                 # Capturas, métricas e gráficos
 ```
+

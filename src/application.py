@@ -182,6 +182,12 @@ class MeteorologicalApp:
             self.benchmark_recorder = MetricsRecorder(
                 self.project_dir / "outputs", prefix="benchmark_opengl"
             )
+        self.controls = None
+        if "weather" in self.dataset.metadata:
+            from .state_controls import StateControls
+            self.controls = StateControls(self)
+            if self.automatic is not None:
+                self.controls.root.withdraw()
         self._print_help()
 
     def _configure_temperature_scale(self) -> None:
@@ -343,6 +349,8 @@ class MeteorologicalApp:
         self.shader.set_float("u_fog_start", self.render_config["fog_start"])
         self.shader.set_float("u_fog_end", self.render_config["fog_end"])
         self.shader.set_vec3("u_fog_color", background)
+        if self.controls is not None:
+            self.controls.bind()
         return self.terrain_gl.draw(levels)
 
     def _save_screenshot(self) -> Path:
@@ -410,6 +418,8 @@ class MeteorologicalApp:
                 delta_time = min(0.1, frame_start - previous_time)
                 previous_time = frame_start
                 glfw.poll_events()
+                if self.controls is not None:
+                    self.controls.update()
                 self._process_keyboard(delta_time)
 
                 if self.automatic is not None:
@@ -449,6 +459,8 @@ class MeteorologicalApp:
                 self.manual_recorder.save()
             if self.terrain_texture is not None:
                 self.terrain_texture.delete()
+            if self.controls is not None:
+                self.controls.delete()
             self.terrain_gl.delete()
             self.shader.delete()
             glfw.destroy_window(self.window)

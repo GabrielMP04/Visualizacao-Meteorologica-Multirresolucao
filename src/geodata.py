@@ -151,6 +151,9 @@ def import_georeferenced(
 
 def load_configured_dataset(project_dir: Path, terrain: dict) -> MeteorologicalDataset:
     """Modo real nunca recorre silenciosamente a dados sinteticos."""
+    if terrain.get("source") == "state":
+        from .state_data import load_state
+        return load_state(project_dir, terrain)
     mode = terrain.get("source", "npz")
     destination = project_dir / terrain["dataset"]
     if mode == "synthetic":

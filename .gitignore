@@ -4,3 +4,4 @@ __pycache__/
 outputs/*.csv
 outputs/*.png
 data/*.npz
+data/Terravista_DSL (1).pdf

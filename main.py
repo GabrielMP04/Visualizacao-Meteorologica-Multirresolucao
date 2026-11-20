@@ -49,8 +49,12 @@ def main() -> int:
             config_path = PROJECT_DIR / args.config
             terrain = json.loads(config_path.read_text(encoding="utf-8"))["terrain"]
             dataset = load_configured_dataset(PROJECT_DIR, terrain)
-            print(f"Dados prontos: {terrain['dataset']} | grade {dataset.elevation.shape}")
-            print(f"Temperatura no mapa: {dataset.temperature.min():.2f} a {dataset.temperature.max():.2f} C")
+            print(f"Dados prontos | grade {dataset.elevation.shape}")
+            if "weather" in dataset.metadata:
+                weather = dataset.metadata["weather"]
+                print(f"{len(weather.times)} horarios UTC: {weather.labels[0]} a {weather.labels[-1]}")
+            else:
+                print(f"Temperatura no mapa: {dataset.temperature.min():.2f} a {dataset.temperature.max():.2f} C")
             if count := dataset.metadata.get("temperature_sample_count"):
                 period = " a ".join(dataset.metadata.get("temperature_period_utc", []))
                 print(f"Media por localizacao de {count} amostras | {period}")

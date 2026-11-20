@@ -17,6 +17,10 @@ uniform float u_fog_start;
 uniform float u_fog_end;
 uniform vec3 u_fog_color;
 
+uniform bool u_state;
+uniform sampler2D u_clip;
+uniform sampler2D u_field;
+uniform vec4 u_grid_mapping;
 out vec4 frag_color;
 
 vec3 temperature_color(float value)
@@ -40,6 +44,17 @@ vec3 temperature_color(float value)
 
 void main()
 {
+    vec2 uv = v_world_position.xz * u_grid_mapping.xy;
+    if (u_state && texture(u_clip, uv).r < 0.5) discard;
+    float value = v_temperature;
+    bool available = true;
+    if (u_state) {
+        vec2 n = vec2(textureSize(u_field, 0));
+        vec2 field_uv = (uv * (n - 1.0) + 0.5) / n;
+        vec2 field = texture(u_field, field_uv).rg;
+        available = field.g > 0.999;
+        value = field.r / max(field.g, 0.00001);
+    }
     vec3 normal = normalize(v_normal);
     vec3 light = normalize(u_light_direction);
     float diffuse = max(dot(normal, light), 0.0);
@@ -49,10 +64,10 @@ void main()
     vec3 base_color;
     if (u_has_texture) {
         base_color = texture(u_terrain_texture, v_texture_uv).rgb;
-        if (u_temperature_opacity > 0.0)
-            base_color = mix(base_color, temperature_color(v_temperature), u_temperature_opacity);
+        if (u_temperature_opacity > 0.0 && available)
+            base_color = mix(base_color, temperature_color(value), u_temperature_opacity);
     } else {
-        base_color = temperature_color(v_temperature);
+        base_color = temperature_color(value);
     }
     vec3 surface_color = base_color * lighting;
 
